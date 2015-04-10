@@ -1,10 +1,10 @@
 {
-  "name": "hubot-hipchat",
-  "version": "2.7.5",
-  "author": "HipChat <support@hipchat.com>",
-  "description": "A Hipchat adapter for Hubot",
+  "name": "hubot-cisco-jabber",
+  "version": "0.0.1",
+  "author": "V.Boyko <v.e.boyko@gmail.com>",
+  "description": "A Cisco Jabber adapter for Hubot",
   "keywords": [
-    "hipchat",
+    "cisco jabber",
     "hubot",
     "xmpp",
     "chat",
@@ -13,15 +13,15 @@
   "licenses": [
     {
       "type": "MIT",
-      "url": "http://github.com/hipchat/hubot-hipchat/raw/master/LICENSE"
+      "url": "http://github.com/v-boyko/hubot-cisco-jabber/raw/master/LICENSE"
     }
   ],
   "repository": {
     "type": "git",
-    "url": "http://github.com/hipchat/hubot-hipchat.git"
+    "url": "http://github.com/v-boyko/hubot-cisco-jabber.git"
   },
   "license": "MIT",
-  "main": "./src/hipchat",
+  "main": "./src/jabber",
   "dependencies": {
     "node-xmpp": "~0.12.0",
     "underscore": "~1.4.4",
