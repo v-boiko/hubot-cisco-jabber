@@ -4,7 +4,7 @@ HTTPS = require "https"
 Connector = require "./connector"
 promise = require "./promises"
 
-class HipChat extends Adapter
+class CiscoJabber extends Adapter
 
   constructor: (robot) ->
     super robot
@@ -79,7 +79,7 @@ class HipChat extends Adapter
       xmppDomain: process.env.HUBOT_HIPCHAT_XMPP_DOMAIN or null
       reconnect: process.env.HUBOT_HIPCHAT_RECONNECT isnt "false"
 
-    @logger.debug "HipChat adapter options: #{JSON.stringify @options}"
+    @logger.debug "CiscoJabber adapter options: #{JSON.stringify @options}"
 
     # create Connector object
     connector = new Connector
@@ -88,8 +88,8 @@ class HipChat extends Adapter
       host: @options.host
       logger: @logger
       xmppDomain: @options.xmppDomain
-    host = if @options.host then @options.host else "hipchat.com"
-    @logger.info "Connecting HipChat adapter..."
+    host = @options.host
+    @logger.info "Connecting CiscoJabber adapter..."
 
     init = promise()
 
@@ -294,4 +294,4 @@ errmsg = (err) ->
   err + (if err.stack then '\n' + err.stack else '')
 
 exports.use = (robot) ->
-  new HipChat robot
+  new CiscoJabber robot
