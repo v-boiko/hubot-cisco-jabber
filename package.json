@@ -21,7 +21,7 @@
     "url": "http://github.com/v-boyko/hubot-cisco-jabber.git"
   },
   "license": "MIT",
-  "main": "./src/jabber",
+  "main": "./src/ciscojabber",
   "dependencies": {
     "node-xmpp": "~0.12.0",
     "underscore": "~1.4.4",
