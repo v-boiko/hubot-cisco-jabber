@@ -1,6 +1,6 @@
-# Modified from [Wobot](https://github.com/cjoudrey/wobot).
+# Modified from [hubot-hipchat](https://github.com/hipchat/hubot-hipchat).
 #
-# Copyright (C) 2011 by Christian Joudrey
+# Copyright (C) 2015 by V. Boyko
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
 {EventEmitter} = require "events"
 fs = require "fs"
 util = require "./util"
+crypto = require "crypto"
 {bind, isString, isRegExp} = require "underscore"
 # The xmpp module emits warnings about node-stringprep that are unfixable on
 # node 0.10+, so require it through our helper that suppresses console messages;
@@ -35,6 +36,25 @@ pkg = do ->
   data = fs.readFileSync __dirname + "/../package.json", "utf8"
   JSON.parse(data)
 
+features = ["cisco.com/p2p-desktop-share",
+  "http://jabber.org/protocol/bytestreams",
+  "http://jabber.org/protocol/caps",
+  "http://jabber.org/protocol/commands",
+  "http://jabber.org/protocol/disco#info",
+  "http://jabber.org/protocol/disco#items",
+  "http://jabber.org/protocol/muc",
+  "http://jabber.org/protocol/si",
+  "http://jabber.org/protocol/si/profile/file-transfer",
+  "http://jabber.org/protocol/xhtml-im",
+  "http://webex.com/connect/aes-file-transfer",
+  "http://webex.com/connect/customcaps/ds",
+  "http://webex.com/connect/customcaps/jinglecmd",
+  "http://webex.com/connect/customcaps/picture-share",
+  "http://webex.com/connect/customcaps/picture-share-mix",
+  "jabber:iq:version",
+  "jabber:x:conference",
+  "urn:xmpp:ooo:0+notify"]
+
 # ##Public Connector API
 module.exports = class Connector extends EventEmitter
 
@@ -43,9 +63,10 @@ module.exports = class Connector extends EventEmitter
   # `options` object:
   #
   #   - `jid`: Connector's Jabber ID
-  #   - `password`: Connector's HipChat password
+  #   - `password`: Connector's Jabber password
   #   - `host`: Force host to make XMPP connection to. Will look up DNS SRV
   #        record on JID's host otherwise.
+  #   - `port`: Use the defined port for connecting
   #   - `caps_ver`: Name and version of connector. Override if Connector is being used
   #        to power another connector framework (e.g. Hubot).
   #   - `logger`: A logger instance.
@@ -62,26 +83,33 @@ module.exports = class Connector extends EventEmitter
 
     # add a JID resource if none was provided
     jid = new xmpp.JID options.jid
-    jid.resource = "hubot-hipchat" if not jid.resource
+    jid.resource = "hubot-cisco-jabber" if not jid.resource
 
     @jid = jid.toString()
     @password = options.password
     @host = options.host
-    @caps_ver = options.caps_ver or "hubot-hipchat:#{pkg.version}"
-    @xmppDomain = options.xmppDomain
+    @port = options.port
+    @caps_ver = options.caps_ver or "hubot-cisco-jabber:#{pkg.version}"
+    
+    @caps_ver = @caps_ver + "-" + new Date().getTime()
 
-    # Multi-User-Conference (rooms) service host. Use when directing stanzas
+    @caps_ver = crypto.createHash('sha1').update(@caps_ver).digest('base64')
+
+    @xmppDomain = options.domain
+
+    # Multi-User-Conference (rooms) service hosts. Use when directing stanzas
     # to the MUC service.
-    @mucDomain = "conf.#{if @xmppDomain then @xmppDomain else 'hipchat.com'}"
+    @mucDomains = []
 
     @onError @disconnect
 
-  # Connects the connector to HipChat and sets the XMPP event listeners.
+  # Connects the connector to Jabber and sets the XMPP event listeners.
   connect: ->
     @jabber = new xmpp.Client
       jid: @jid,
       password: @password,
-      host: @host
+      host: @host,
+      port: @port
 
     @jabber.on "error", bind(onStreamError, @)
     @jabber.on "online", bind(onOnline, @)
@@ -98,7 +126,7 @@ module.exports = class Connector extends EventEmitter
         @logger.debug " OUT > %s", stanza
         _send.call @jabber, stanza
 
-  # Disconnect the connector from HipChat, remove the anti-idle and emit the
+  # Disconnect the connector from Jabber, remove the anti-idle and emit the
   # `disconnect` event.
   disconnect: =>
     @logger.debug 'Disconnecting here'
@@ -121,18 +149,43 @@ module.exports = class Connector extends EventEmitter
       data = {}
       if not err
         for field in res.getChild("vCard").children
-          data[field.name.toLowerCase()] = field.getText()
+          if field.name
+            data[field.name.toLowerCase()] = field.getText()
       callback err, data, res
 
+  # Fetches multi-user conference domains from the server
+  # since usually they are not pre-defined in Cisco Jabber world
+  #
+  # - `callback`: Function to be triggered: `function (err, domains, stanza)`
+  #   - `err`: Error condition (string) if any
+  #   - `domains`: Array of muc domain names (JIDs)
+  #   - `stanza`: Full response stanza, an `xmpp.Element`
+  getMucDomains: (callback) ->
+    iq = new xmpp.Element "iq",
+      to: @xmppDomain
+      type: "get"
+    
+    iq.c "query",
+      xmlns: "http://jabber.org/protocol/disco#items"
+    
+    @sendIq iq, (err, stanza) ->
+      domains = if err then [] else
+        # Parse response into domains list
+        stanza.getChild("query").getChildren("item").map (el) ->
+          el.attrs.jid
+      callback err, (domains or []), stanza
+
   # Fetches the rooms available to the connector user. This is equivalent to what
-  # would show up in the HipChat lobby.
+  # would show up in the Jabber lobby.
   #
   # - `callback`: Function to be triggered: `function (err, items, stanza)`
   #   - `err`: Error condition (string) if any
   #   - `rooms`: Array of objects containing room data
   #   - `stanza`: Full response stanza, an `xmpp.Element`
   getRooms: (callback) ->
-    iq = new xmpp.Element("iq", to: this.mucDomain, type: "get")
+    # Get the first muc domain (change it later)
+    mucDomain = @mucDomains[0]
+    iq = new xmpp.Element("iq", to: mucDomain, type: "get")
       .c("query", xmlns: "http://jabber.org/protocol/disco#items");
     @sendIq iq, (err, stanza) ->
       rooms = if err then [] else
@@ -171,17 +224,24 @@ module.exports = class Connector extends EventEmitter
   #     - `dnd` (Do not disturb)
   #  - `status`: Status message to display
   setAvailability: (availability, status) ->
-    packet = new xmpp.Element "presence", type: "available"
-    packet.c("show").t(availability)
+    packet = new xmpp.Element "presence"
+    packet.c("show").t(availability) if (availability)
     packet.c("status").t(status) if (status)
+    packet.c("priority").t("5")
 
-    # Providing capabilities info (XEP-0115) in presence tells HipChat
+    # Providing capabilities info (XEP-0115) in presence tells Jabber
     # what type of client is connecting. The rest of the spec is not actually
     # used at this time.
+
+    packet.c "x",
+      xmlns: "http://webex.com/connect/customstatus"
+      var: "0"
+
     packet.c "c",
       xmlns: "http://jabber.org/protocol/caps"
-      node: "http://hipchat.com/client/bot" # tell HipChat we're a bot
+      node: "https://github.com/v-boyko/hubot-cisco-jabber"
       ver: @caps_ver
+      hash: "sha-1"
 
     @jabber.send packet
 
@@ -218,9 +278,9 @@ module.exports = class Connector extends EventEmitter
   message: (targetJid, message) ->
     parsedJid = new xmpp.JID targetJid
 
-    if parsedJid.domain is @mucDomain
+    if parsedJid.domain in @mucDomains
       packet = new xmpp.Element "message",
-        to: "#{targetJid}/#{@name}"
+        to: "#{targetJid}"
         type: "groupchat"
     else
       packet = new xmpp.Element "message",
@@ -236,6 +296,40 @@ module.exports = class Connector extends EventEmitter
     @logger.debug message
     packet.c("body").t(message)
     @jabber.send packet
+
+  picture: (targetJid, location) ->
+    parsedJid = new xmpp.JID targetJid
+    imageId = @jid + '_' + crypto.createHash('sha1').update(location).digest('hex')
+    
+    if parsedJid.domain in @mucDomains
+      packet = new xmpp.Element "message",
+        to: "#{targetJid}/#{@name}"
+        type: "groupchat"
+    else
+      packet = new xmpp.Element "message",
+        to: targetJid
+        type: "chat"
+        from: @jid
+    packet.c "x",
+      xmlns: "http://webex.com/connect/imcmd"
+      type: 330
+    
+    packet.c("x",xmlns: "http://protocols.cisco.com/csg/log-notification").t("Subject")
+    
+    html = packet.c "html",
+      xmlns: "http://jabber.org/protocol/xhtml-im"
+
+    body = html.c "body",
+      xmlns: "http://www.w3.org/1999/xhtml"
+
+    body.c "img",
+      alt: "Puppy"
+      id: "sourcerobot@rule.lan_20150415_113100984.png"
+      name: "connect_screen_capture"
+      src: location
+
+    @jabber.send packet
+      
 
   # Send a topic change message to a room
   #
@@ -408,6 +502,16 @@ onOnline = ->
       @name = data.fn;
       # This is the name used to @mention us
       @mention_name = data.nickname
+
+  # Load list of multi-user conference domains
+  @getMucDomains (err, domains) =>
+    if err
+      @emit "error", null, "Unable to receive list of muc domains"
+    else
+      # Save muc domains to the instance variable
+      @mucDomains = domains
+      @logger.info "Received list of muc domains: #{domains}"
+      # Successfully connected
       @emit "connect"
 
 # This function is responsible for handling incoming XMPP messages. The
@@ -428,9 +532,23 @@ onStanza = (stanza) ->
       return if stanza.getChild "delay"
       fromJid = new xmpp.JID stanza.attrs.from
       fromChannel = fromJid.bare().toString()
-      fromNick = fromJid.resource
+
+      # parse the JID of user
+      resource = fromJid.resource
       # Ignore our own messages
-      return if fromNick is @name
+      return if resource is undefined or resource is null or resource is "" or resource is @name
+
+      # sometimes resource has form 'user@domain/jabber_1234'
+      # let's handle that situation
+      try
+        userJid = new xmpp.JID resource.toString()
+        fromNick = userJid.local
+      catch err
+        fromNick = resource
+      
+      if not fromNick
+        fromNick = resource
+
       @emit "message", fromChannel, fromNick, body
 
     else if stanza.attrs.type is "chat"
@@ -457,9 +575,35 @@ onStanza = (stanza) ->
       @emit event_id, null, stanza
     else if stanza.attrs.type is "set"
       # Check for roster push
-      if stanza.getChild("query").attrs.xmlns is "jabber:iq:roster"
+      query = stanza.getChild("query")
+      if query and query.attrs.xmlns is "jabber:iq:roster"
         users = usersFromStanza(stanza)
         @emit "rosterChange", users, stanza
+    else if stanza.attrs.type is "get"
+      query = stanza.getChild("query")
+      if query and query.attrs.xmlns is "http://jabber.org/protocol/disco#info"
+        fromJid = new xmpp.JID stanza.attrs.from
+        node = query.attrs.node
+        iq = new xmpp.Element "iq",
+          to: fromJid.toString()
+          type: "result"
+          from: @jid
+          id: stanza.attrs.id
+        
+        query = iq.c "query",
+          xmlns: query.attrs.xmlns
+          node: node
+        
+        query.c "identity",
+          category: "client"
+          type: "im"
+          name: "Hubot Jabber Bot 0.0.1"
+
+        for feature in features
+          query.c "feature",
+            var: feature
+        
+        @jabber.send iq
     else
       # IQ error response
       # ex: http://xmpp.org/rfcs/rfc6121.html#roster-syntax-actions-result

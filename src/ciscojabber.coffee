@@ -15,9 +15,9 @@ class CiscoJabber extends Adapter
     @send envelope, strings.map((str) -> "/me #{str}")...
 
   send: (envelope, strings...) ->
-    {user, room} = envelope
+    {user, room, picture} = envelope
     user = envelope if not user # pre-2.4.2 style
-
+    
     target_jid =
       # most common case - we're replying to a user in a room or 1-1
       user?.reply_to or
@@ -33,6 +33,9 @@ class CiscoJabber extends Adapter
 
     for str in strings
       @connector.message target_jid, str
+
+    if picture
+      @connector.picture target_jid, picture
 
   topic: (envelope, message) ->
     {user, room} = envelope
@@ -55,7 +58,7 @@ class CiscoJabber extends Adapter
 
   reply: (envelope, strings...) ->
     user = if envelope.user then envelope.user else envelope
-    @send envelope, "@#{user.mention_name} #{str}" for str in strings
+    @send envelope, "@#{user.name} #{str}" for str in strings
 
   waitAndReconnect: ->
     if !@reconnectTimer
@@ -69,27 +72,28 @@ class CiscoJabber extends Adapter
 
   run: ->
     @options =
-      jid: process.env.HUBOT_HIPCHAT_JID
-      password: process.env.HUBOT_HIPCHAT_PASSWORD
-      token: process.env.HUBOT_HIPCHAT_TOKEN or null
-      rooms: process.env.HUBOT_HIPCHAT_ROOMS or "All"
-      rooms_blacklist: process.env.HUBOT_HIPCHAT_ROOMS_BLACKLIST or ""
-      host: process.env.HUBOT_HIPCHAT_HOST or null
-      autojoin: process.env.HUBOT_HIPCHAT_JOIN_ROOMS_ON_INVITE isnt "false"
-      xmppDomain: process.env.HUBOT_HIPCHAT_XMPP_DOMAIN or null
-      reconnect: process.env.HUBOT_HIPCHAT_RECONNECT isnt "false"
+      jid: process.env.HUBOT_JABBER_JID
+      password: process.env.HUBOT_JABBER_PASSWORD
+      rooms: process.env.HUBOT_JABBER_ROOMS or "All"
+      rooms_blacklist: process.env.HUBOT_JABBER_ROOMS_BLACKLIST or ""
+      host: process.env.HUBOT_JABBER_HOST or null
+      port: process.env.HUBOT_JABER_PORT or null
+      autojoin: process.env.HUBOT_JABBER_JOIN_ROOMS_ON_INVITE isnt "false"
+      domain: process.env.HUBOT_JABBER_DOMAIN or null
+      reconnect: process.env.HUBOT_JABBER_RECONNECT isnt "false"
 
-    @logger.debug "CiscoJabber adapter options: #{JSON.stringify @options}"
+    @logger.debug "Cisco Jabber adapter options: #{JSON.stringify @options}"
 
     # create Connector object
     connector = new Connector
       jid: @options.jid
       password: @options.password
       host: @options.host
+      port: @options.port
       logger: @logger
-      xmppDomain: @options.xmppDomain
+      domain: @options.domain
     host = @options.host
-    @logger.info "Connecting CiscoJabber adapter..."
+    @logger.info "Connecting Cisco Jabber adapter..."
 
     init = promise()
 
@@ -148,18 +152,19 @@ class CiscoJabber extends Adapter
       init
         .done (users) =>
           saveUsers(users)
-          # Join requested rooms
-          if @options.rooms is "All" or @options.rooms is "@All"
-            connector.getRooms (err, rooms, stanza) =>
-              if rooms
-                for room in rooms
-                  joinRoom(room.jid)
-              else
-                @logger.error "Can't list rooms: #{errmsg err}"
-          # Join all rooms
-          else
-            for room_jid in @options.rooms.split ","
-              joinRoom(room_jid)
+		  ## DO NOT JOIN ANY ROOMS WITHOUT INVITATION!
+          ## Join requested rooms
+          # if (@options.rooms is "All" or @options.rooms is "@All") and @options.joinRooms
+          #  connector.getRooms (err, rooms, stanza) =>
+          #    if rooms
+          #      for room in rooms
+          #        #joinRoom(room.jid)
+          #    else
+          #      @logger.error "Can't list rooms: #{errmsg err}"
+          ## Join all rooms
+          #else
+          #  for room_jid in @options.rooms.split ","
+          #    joinRoom(room_jid)
         .fail (err) =>
           @logger.error "Can't list users: #{errmsg err}" if err
 
@@ -171,7 +176,7 @@ class CiscoJabber extends Adapter
         # to ensure user data is properly loaded
         init.done =>
           {getAuthor, message, reply_to, room} = opts
-          author = Object.create(getAuthor()) or {}
+          author = getAuthor() or {}
           author.reply_to = reply_to
           author.room = room
           @receive new TextMessage(author, message)
@@ -229,13 +234,13 @@ class CiscoJabber extends Adapter
 
   userIdFromJid: (jid) ->
     try
-      jid.match(/^\d+_(\d+)@chat\./)[1]
+      jid.match(/^(\w+)@([\w.]+)/)[1]
     catch e
       @logger.error "Bad user JID: #{jid}"
 
   roomNameFromJid: (jid) ->
     try
-      jid.match(/^\d+_(.+)@conf\./)[1]
+      jid.match(/^(\w+)@([\w.]+)/)[1]
     catch e
       @logger.error "Bad room JID: #{jid}"
 
