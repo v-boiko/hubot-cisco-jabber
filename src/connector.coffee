@@ -36,21 +36,22 @@ pkg = do ->
   data = fs.readFileSync __dirname + "/../package.json", "utf8"
   JSON.parse(data)
 
-features = ["cisco.com/p2p-desktop-share",
-  "http://jabber.org/protocol/bytestreams",
+features = [
+#  "cisco.com/p2p-desktop-share",
+#  "http://jabber.org/protocol/bytestreams",
   "http://jabber.org/protocol/caps",
-  "http://jabber.org/protocol/commands",
+#  "http://jabber.org/protocol/commands",
   "http://jabber.org/protocol/disco#info",
   "http://jabber.org/protocol/disco#items",
   "http://jabber.org/protocol/muc",
-  "http://jabber.org/protocol/si",
-  "http://jabber.org/protocol/si/profile/file-transfer",
-  "http://jabber.org/protocol/xhtml-im",
-  "http://webex.com/connect/aes-file-transfer",
-  "http://webex.com/connect/customcaps/ds",
-  "http://webex.com/connect/customcaps/jinglecmd",
-  "http://webex.com/connect/customcaps/picture-share",
-  "http://webex.com/connect/customcaps/picture-share-mix",
+#  "http://jabber.org/protocol/si",
+#  "http://jabber.org/protocol/si/profile/file-transfer",
+#  "http://jabber.org/protocol/xhtml-im",
+#  "http://webex.com/connect/aes-file-transfer",
+#  "http://webex.com/connect/customcaps/ds",
+#  "http://webex.com/connect/customcaps/jinglecmd",
+#  "http://webex.com/connect/customcaps/picture-share",
+#  "http://webex.com/connect/customcaps/picture-share-mix",
   "jabber:iq:version",
   "jabber:x:conference",
   "urn:xmpp:ooo:0+notify"]
@@ -91,6 +92,8 @@ module.exports = class Connector extends EventEmitter
     @port = options.port
     @caps_ver = options.caps_ver or "hubot-cisco-jabber:#{pkg.version}"
     
+	# Only for debugging purposes
+	# (causes other clients to always ask for our capabilities)
     @caps_ver = @caps_ver + "-" + new Date().getTime()
 
     @caps_ver = crypto.createHash('sha1').update(@caps_ver).digest('base64')
@@ -297,38 +300,38 @@ module.exports = class Connector extends EventEmitter
     packet.c("body").t(message)
     @jabber.send packet
 
-  picture: (targetJid, location) ->
-    parsedJid = new xmpp.JID targetJid
-    imageId = @jid + '_' + crypto.createHash('sha1').update(location).digest('hex')
-    
-    if parsedJid.domain in @mucDomains
-      packet = new xmpp.Element "message",
-        to: "#{targetJid}/#{@name}"
-        type: "groupchat"
-    else
-      packet = new xmpp.Element "message",
-        to: targetJid
-        type: "chat"
-        from: @jid
-    packet.c "x",
-      xmlns: "http://webex.com/connect/imcmd"
-      type: 330
-    
-    packet.c("x",xmlns: "http://protocols.cisco.com/csg/log-notification").t("Subject")
-    
-    html = packet.c "html",
-      xmlns: "http://jabber.org/protocol/xhtml-im"
-
-    body = html.c "body",
-      xmlns: "http://www.w3.org/1999/xhtml"
-
-    body.c "img",
-      alt: "Puppy"
-      id: "sourcerobot@rule.lan_20150415_113100984.png"
-      name: "connect_screen_capture"
-      src: location
-
-    @jabber.send packet
+  #picture: (targetJid, location) ->
+  #  parsedJid = new xmpp.JID targetJid
+  #  imageId = @jid + '_' + crypto.createHash('sha1').update(location).digest('hex')
+  #  
+  #  if parsedJid.domain in @mucDomains
+  #    packet = new xmpp.Element "message",
+  #      to: "#{targetJid}/#{@name}"
+  #      type: "groupchat"
+  #  else
+  #    packet = new xmpp.Element "message",
+  #      to: targetJid
+  #      type: "chat"
+  #      from: @jid
+  #  packet.c "x",
+  #    xmlns: "http://webex.com/connect/imcmd"
+  #    type: 330
+  #  
+  #  packet.c("x",xmlns: "http://protocols.cisco.com/csg/log-notification").t("Subject")
+  #  
+  #  html = packet.c "html",
+  #    xmlns: "http://jabber.org/protocol/xhtml-im"
+  #
+  #  body = html.c "body",
+  #    xmlns: "http://www.w3.org/1999/xhtml"
+  #
+  #  body.c "img",
+  #    alt: "Puppy"
+  #    id: "sourcerobot@rule.lan_20150415_113100984.png"
+  #    name: "connect_screen_capture"
+  #    src: location
+  #
+  #  @jabber.send packet
       
 
   # Send a topic change message to a room

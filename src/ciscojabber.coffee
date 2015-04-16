@@ -15,7 +15,7 @@ class CiscoJabber extends Adapter
     @send envelope, strings.map((str) -> "/me #{str}")...
 
   send: (envelope, strings...) ->
-    {user, room, picture} = envelope
+    {user, room} = envelope
     user = envelope if not user # pre-2.4.2 style
     
     target_jid =
@@ -34,8 +34,8 @@ class CiscoJabber extends Adapter
     for str in strings
       @connector.message target_jid, str
 
-    if picture
-      @connector.picture target_jid, picture
+    #if picture
+    #  @connector.picture target_jid, picture
 
   topic: (envelope, message) ->
     {user, room} = envelope
